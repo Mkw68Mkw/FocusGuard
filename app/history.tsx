@@ -1,29 +1,66 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-const placeholderSessions = [
-  { id: '1', date: 'Noch keine Session', score: '--', duration: '--:--' },
-  { id: '2', date: 'Noch keine Session', score: '--', duration: '--:--' },
-  { id: '3', date: 'Noch keine Session', score: '--', duration: '--:--' },
-];
+import { FocusSession } from '@/models/focusSession';
+import { loadSessions } from '@/utils/sessionStorage';
+
+// Hilfsfunktion: Sekunden als mm:ss anzeigen.
+function formatTime(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(minutes)}:${pad(seconds)}`;
+}
+
+// Hilfsfunktion: ISO-Datum lesbar anzeigen.
+function formatDate(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString('de-CH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function HistoryScreen() {
+  const [sessions, setSessions] = useState<FocusSession[]>([]);
+
+  // Bei jedem Fokussieren des Screens die gespeicherten Sessions neu laden.
+  useFocusEffect(
+    useCallback(() => {
+      loadSessions().then(setSessions);
+    }, [])
+  );
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Verlauf</Text>
       <Text style={styles.description}>
-        Hier erscheinen später deine gespeicherten Sessions. Im Moment siehst du nur Platzhalter.
+        Hier siehst du deine gespeicherten Sessions, die neueste zuerst.
       </Text>
 
-      {placeholderSessions.map((session) => (
-        <View key={session.id} style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardDate}>{session.date}</Text>
-            <Text style={styles.cardScore}>{session.score}</Text>
-          </View>
-          <Text style={styles.cardDuration}>Dauer: {session.duration}</Text>
+      {sessions.length === 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.cardDate}>Noch keine Sessions</Text>
+          <Text style={styles.cardDuration}>Starte eine Session, um deinen Verlauf zu füllen.</Text>
         </View>
-      ))}
+      ) : (
+        sessions.map((session) => (
+          <View key={session.id} style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardDate}>{formatDate(session.date)}</Text>
+              <Text style={styles.cardScore}>{session.score}</Text>
+            </View>
+            <Text style={styles.cardDuration}>
+              Dauer: {formatTime(session.durationSeconds)} · Unterbrechungen: {session.interruptions}
+            </Text>
+          </View>
+        ))
+      )}
 
       <Pressable
         style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}

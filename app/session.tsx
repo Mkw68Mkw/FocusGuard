@@ -3,6 +3,9 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { FocusSession } from '@/models/focusSession';
+import { addSession } from '@/utils/sessionStorage';
+
 // Ab diesem Bewegungswert zählt eine Bewegung als Unterbrechung.
 // Kleiner = empfindlicher. Bei Bedarf anpassen.
 const MOVEMENT_THRESHOLD = 1.2;
@@ -122,9 +125,21 @@ export default function SessionScreen() {
   // Einfacher Score: pro Unterbrechung 7 Punkte Abzug, mindestens 0.
   const score = Math.max(0, 100 - interruptions * 7);
 
-  // Session beenden: zuerst Timer/Sensor stoppen, dann Werte an den Result Screen übergeben.
-  const endSession = () => {
+  // Session beenden: Timer/Sensor stoppen, Session speichern und Werte an den Result Screen übergeben.
+  const endSession = async () => {
     stopSession();
+
+    // Session-Objekt für den Verlauf erstellen und speichern.
+    const session: FocusSession = {
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      durationSeconds: seconds,
+      interruptions,
+      longestCalmSeconds,
+      score,
+    };
+    await addSession(session);
+
     router.push({
       pathname: '/result',
       params: {

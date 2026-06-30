@@ -1,29 +1,55 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+// Hilfsfunktion: Sekunden als mm:ss anzeigen.
+function formatTime(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(minutes)}:${pad(seconds)}`;
+}
+
+// Params kommen als String an, deshalb sicher in eine Zahl umwandeln.
+function toNumber(value: string | string[] | undefined) {
+  const num = Number(Array.isArray(value) ? value[0] : value);
+  return Number.isFinite(num) ? num : 0;
+}
+
 export default function ResultScreen() {
+  // Werte, die der Session Screen übergeben hat, auslesen.
+  const params = useLocalSearchParams();
+  const durationSeconds = toNumber(params.durationSeconds);
+  const interruptions = toNumber(params.interruptions);
+  const longestCalmSeconds = toNumber(params.longestCalmSeconds);
+  const score = toNumber(params.score);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Dein Ergebnis</Text>
       <Text style={styles.description}>
-        Hier siehst du nach jeder Session deine Auswertung. Aktuell sind dies nur Platzhalter.
+        Das war deine Session. Die Werte wurden im Verlauf gespeichert.
       </Text>
 
       <View style={styles.scoreCard}>
         <Text style={styles.scoreLabel}>Focus Score</Text>
-        <Text style={styles.scoreValue}>--</Text>
+        <Text style={styles.scoreValue}>{score}</Text>
         <Text style={styles.scoreHint}>von 100</Text>
       </View>
 
       <View style={styles.row}>
         <View style={[styles.smallCard, styles.flex1]}>
           <Text style={styles.cardLabel}>Dauer</Text>
-          <Text style={styles.cardValue}>--:--</Text>
+          <Text style={styles.cardValue}>{formatTime(durationSeconds)}</Text>
         </View>
         <View style={[styles.smallCard, styles.flex1]}>
           <Text style={styles.cardLabel}>Unterbrechungen</Text>
-          <Text style={styles.cardValue}>--</Text>
+          <Text style={styles.cardValue}>{interruptions}</Text>
         </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Längste ruhige Phase</Text>
+        <Text style={styles.cardValue}>{formatTime(longestCalmSeconds)}</Text>
       </View>
 
       <Pressable
@@ -86,6 +112,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 16,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 18,
     gap: 6,
     shadowColor: '#000',
     shadowOpacity: 0.06,
