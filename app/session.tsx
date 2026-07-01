@@ -1,27 +1,23 @@
-import { Accelerometer } from 'expo-sensors';
+import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FocusSession } from '@/models/focusSession';
+import { formatTime } from '@/utils/format';
 import { addSession } from '@/utils/sessionStorage';
 
-// Ab diesem Bewegungswert zählt eine Bewegung als Unterbrechung.
-// Kleiner = empfindlicher. Bei Bedarf anpassen.
-const MOVEMENT_THRESHOLD = 1.2;
-// Mindestabstand zwischen zwei gezählten Unterbrechungen (in ms),
-// damit eine einzelne Bewegung nicht mehrfach gezählt wird.
-const INTERRUPTION_COOLDOWN_MS = 1500;
-// Wie lange der Status nach einer Bewegung auf "Bewegt" bleibt (in ms).
-const MOVING_DISPLAY_MS = 800;
-
-// Hilfsfunktion: Sekunden als mm:ss anzeigen.
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(minutes)}:${pad(seconds)}`;
-}
+// Schwelle für den Accelerometer (ruckartige Bewegung / Anheben).
+// Kleiner = empfindlicher.
+const ACCEL_THRESHOLD = 0.25;
+// Schwelle für das Gyroscope (langsames Kippen / Drehen).
+// Kleiner = empfindlicher.
+const GYRO_THRESHOLD = 0.12;
+// Wie lange (in ms) das Handy ruhig sein muss, bis die aktuelle
+// Unterbrechung als beendet gilt und eine neue gezählt werden kann.
+const CALM_RESET_MS = 2000;
+// Update-Intervall beider Sensoren (in ms).
+const SENSOR_INTERVAL_MS = 200;
 
 export default function SessionScreen() {
   const [seconds, setSeconds] = useState(0);
@@ -30,33 +26,60 @@ export default function SessionScreen() {
   const [longestCalmSeconds, setLongestCalmSeconds] = useState(0);
 
   // Refs für Werte, die wir zwischen Updates merken, aber nicht rendern müssen.
-  const lastReading = useRef({ x: 0, y: 0, z: 0 });
-  const hasFirstReading = useRef(false);
-  const lastInterruptionTime = useRef(0);
+  // Vorherige Sensor-Messwerte, um die Veränderung (delta) zu berechnen.
+  const lastAccel = useRef({ x: 0, y: 0, z: 0 });
+  const lastGyro = useRef({ x: 0, y: 0, z: 0 });
+  const hasFirstAccel = useRef(false);
+  const hasFirstGyro = useRef(false);
+
+  // Läuft aktuell schon eine Unterbrechung? Verhindert Mehrfachzählung
+  // während einer einzigen Handy-Nutzung.
+  const isInInterruption = useRef(false);
+  // Zeitpunkt der zuletzt erkannten Aktivität (in ms).
+  const lastActivityTime = useRef(0);
   const calmStreak = useRef(0); // aktuelle ruhige Phase in Sekunden
-  const movingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Timer und Sensor in Refs merken, damit wir sie beim Beenden gezielt stoppen können.
+  // Timer und Sensoren in Refs merken, damit wir sie beim Beenden gezielt stoppen können.
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const subscriptionRef = useRef<ReturnType<typeof Accelerometer.addListener> | null>(null);
+  const calmCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const accelSubRef = useRef<ReturnType<typeof Accelerometer.addListener> | null>(null);
+  const gyroSubRef = useRef<ReturnType<typeof Gyroscope.addListener> | null>(null);
 
-  // Stoppt Timer, Sensor und Timeout. Kann mehrfach gefahrlos aufgerufen werden.
+  // Stoppt Timer, Check-Intervall und beide Sensoren. Mehrfach gefahrlos aufrufbar.
   const stopSession = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    if (subscriptionRef.current) {
-      subscriptionRef.current.remove();
-      subscriptionRef.current = null;
+    if (calmCheckRef.current) {
+      clearInterval(calmCheckRef.current);
+      calmCheckRef.current = null;
     }
-    if (movingTimeout.current) {
-      clearTimeout(movingTimeout.current);
-      movingTimeout.current = null;
+    if (accelSubRef.current) {
+      accelSubRef.current.remove();
+      accelSubRef.current = null;
+    }
+    if (gyroSubRef.current) {
+      gyroSubRef.current.remove();
+      gyroSubRef.current = null;
     }
   };
 
-  // Startet eine frische Session: setzt alle Werte zurück und beginnt Timer + Sensor.
+  // Wird aufgerufen, sobald einer der Sensoren Bewegung meldet.
+  // Zählt pro Handy-Nutzung nur EINE Unterbrechung.
+  const registerActivity = () => {
+    setIsMoving(true);
+    lastActivityTime.current = Date.now();
+
+    // Nur zählen, wenn nicht bereits eine Unterbrechung läuft.
+    if (!isInInterruption.current) {
+      isInInterruption.current = true;
+      setInterruptions((prev) => prev + 1);
+      calmStreak.current = 0; // ruhige Phase beginnt von vorne
+    }
+  };
+
+  // Startet eine frische Session: setzt alle Werte zurück und beginnt Timer + Sensoren.
   const startSession = () => {
     // Anzeige-Werte zurücksetzen.
     setSeconds(0);
@@ -65,51 +88,76 @@ export default function SessionScreen() {
     setLongestCalmSeconds(0);
 
     // Gemerkte Werte zurücksetzen.
-    hasFirstReading.current = false;
-    lastInterruptionTime.current = 0;
+    hasFirstAccel.current = false;
+    hasFirstGyro.current = false;
+    isInInterruption.current = false;
+    lastActivityTime.current = 0;
     calmStreak.current = 0;
 
     // Timer: erhöht jede Sekunde die Dauer und verfolgt die längste ruhige Phase.
+    // Die ruhige Phase zählt nur hoch, wenn gerade keine Unterbrechung läuft;
+    // während einer Unterbrechung bleibt sie bei 0.
     intervalRef.current = setInterval(() => {
       setSeconds((prev) => prev + 1);
-      calmStreak.current += 1;
-      setLongestCalmSeconds((prev) => Math.max(prev, calmStreak.current));
+      if (isInInterruption.current) {
+        calmStreak.current = 0;
+      } else {
+        calmStreak.current += 1;
+        setLongestCalmSeconds((prev) => Math.max(prev, calmStreak.current));
+      }
     }, 1000);
 
-    // Accelerometer: misst Bewegung und zählt Unterbrechungen.
-    Accelerometer.setUpdateInterval(200);
-    subscriptionRef.current = Accelerometer.addListener((data) => {
+    // Ruhe-Check: prüft regelmässig, ob das Handy lange genug ruhig war.
+    // Ist das der Fall, gilt die Unterbrechung als beendet -> nächste kann zählen.
+    calmCheckRef.current = setInterval(() => {
+      if (
+        lastActivityTime.current > 0 &&
+        Date.now() - lastActivityTime.current > CALM_RESET_MS
+      ) {
+        setIsMoving(false);
+        isInInterruption.current = false;
+      }
+    }, 500);
+
+    // Beide Sensoren gleich schnell abtasten.
+    Accelerometer.setUpdateInterval(SENSOR_INTERVAL_MS);
+    Gyroscope.setUpdateInterval(SENSOR_INTERVAL_MS);
+
+    // Accelerometer: erkennt ruckartige Bewegungen und Anheben.
+    accelSubRef.current = Accelerometer.addListener((data) => {
       // Beim ersten Messwert nur speichern, noch nicht vergleichen.
-      if (!hasFirstReading.current) {
-        lastReading.current = data;
-        hasFirstReading.current = true;
+      if (!hasFirstAccel.current) {
+        lastAccel.current = data;
+        hasFirstAccel.current = true;
         return;
       }
 
-      // delta = wie stark hat sich die Lage seit der letzten Messung verändert.
-      const delta =
-        Math.abs(data.x - lastReading.current.x) +
-        Math.abs(data.y - lastReading.current.y) +
-        Math.abs(data.z - lastReading.current.z);
+      const accelDelta =
+        Math.abs(data.x - lastAccel.current.x) +
+        Math.abs(data.y - lastAccel.current.y) +
+        Math.abs(data.z - lastAccel.current.z);
 
-      lastReading.current = data;
+      lastAccel.current = data;
 
-      // Nur reagieren, wenn die Bewegung gross genug ist.
-      if (delta > MOVEMENT_THRESHOLD) {
-        const now = Date.now();
+      if (accelDelta > ACCEL_THRESHOLD) registerActivity();
+    });
 
-        // Cooldown: nur zählen, wenn genug Zeit seit der letzten Unterbrechung vergangen ist.
-        if (now - lastInterruptionTime.current >= INTERRUPTION_COOLDOWN_MS) {
-          lastInterruptionTime.current = now;
-          setInterruptions((prev) => prev + 1);
-          calmStreak.current = 0; // ruhige Phase beginnt von vorne
-
-          // Status kurz auf "Bewegt" setzen und danach zurück auf "Ruhig".
-          setIsMoving(true);
-          if (movingTimeout.current) clearTimeout(movingTimeout.current);
-          movingTimeout.current = setTimeout(() => setIsMoving(false), MOVING_DISPLAY_MS);
-        }
+    // Gyroscope: erkennt langsames Kippen und Drehen.
+    gyroSubRef.current = Gyroscope.addListener((data) => {
+      if (!hasFirstGyro.current) {
+        lastGyro.current = data;
+        hasFirstGyro.current = true;
+        return;
       }
+
+      const gyroDelta =
+        Math.abs(data.x - lastGyro.current.x) +
+        Math.abs(data.y - lastGyro.current.y) +
+        Math.abs(data.z - lastGyro.current.z);
+
+      lastGyro.current = data;
+
+      if (gyroDelta > GYRO_THRESHOLD) registerActivity();
     });
   };
 

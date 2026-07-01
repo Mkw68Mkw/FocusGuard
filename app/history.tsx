@@ -1,17 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FocusSession } from '@/models/focusSession';
-import { loadSessions } from '@/utils/sessionStorage';
-
-// Hilfsfunktion: Sekunden als mm:ss anzeigen.
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(minutes)}:${pad(seconds)}`;
-}
+import { formatTime } from '@/utils/format';
+import { clearSessions, loadSessions } from '@/utils/sessionStorage';
 
 // Hilfsfunktion: ISO-Datum lesbar anzeigen.
 function formatDate(iso: string) {
@@ -35,6 +28,25 @@ export default function HistoryScreen() {
       loadSessions().then(setSessions);
     }, [])
   );
+
+  // Verlauf löschen: erst nachfragen, bei Bestätigung alle Sessions entfernen.
+  const handleClear = () => {
+    Alert.alert(
+      'Verlauf löschen?',
+      'Alle gespeicherten Sessions werden dauerhaft entfernt. Das kann nicht rückgängig gemacht werden.',
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Löschen',
+          style: 'destructive',
+          onPress: async () => {
+            await clearSessions();
+            setSessions([]);
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -67,6 +79,14 @@ export default function HistoryScreen() {
         onPress={() => router.dismissTo('/')}>
         <Text style={styles.primaryButtonText}>Zurück zum Start</Text>
       </Pressable>
+
+      {sessions.length > 0 && (
+        <Pressable
+          style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+          onPress={handleClear}>
+          <Text style={styles.dangerButtonText}>Verlauf löschen</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -127,6 +147,19 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  dangerButton: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  dangerButtonText: {
+    color: '#EF4444',
     fontSize: 16,
     fontWeight: '700',
   },

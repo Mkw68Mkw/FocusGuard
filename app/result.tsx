@@ -1,18 +1,20 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// Hilfsfunktion: Sekunden als mm:ss anzeigen.
-function formatTime(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(minutes)}:${pad(seconds)}`;
-}
+import { formatTime } from '@/utils/format';
 
 // Params kommen als String an, deshalb sicher in eine Zahl umwandeln.
 function toNumber(value: string | string[] | undefined) {
   const num = Number(Array.isArray(value) ? value[0] : value);
   return Number.isFinite(num) ? num : 0;
+}
+
+// Wandelt den Score in eine Bewertung mit Text, Farbe und Emoji um.
+function getRating(score: number) {
+  if (score >= 90) return { label: 'Sehr fokussiert', color: '#10B981', emoji: '🎯' };
+  if (score >= 70) return { label: 'Gute Session', color: '#22C55E', emoji: '💪' };
+  if (score >= 50) return { label: 'Okay', color: '#F59E0B', emoji: '🙂' };
+  return { label: 'Viele Unterbrechungen', color: '#EF4444', emoji: '😬' };
 }
 
 export default function ResultScreen() {
@@ -23,6 +25,9 @@ export default function ResultScreen() {
   const longestCalmSeconds = toNumber(params.longestCalmSeconds);
   const score = toNumber(params.score);
 
+  // Bewertung passend zum Score bestimmen.
+  const rating = getRating(score);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Dein Ergebnis</Text>
@@ -30,10 +35,20 @@ export default function ResultScreen() {
         Das war deine Session. Die Werte wurden im Verlauf gespeichert.
       </Text>
 
-      <View style={styles.scoreCard}>
-        <Text style={styles.scoreLabel}>Focus Score</Text>
-        <Text style={styles.scoreValue}>{score}</Text>
-        <Text style={styles.scoreHint}>von 100</Text>
+      {/* Score-Karte mit Farbe passend zur Bewertung */}
+      <View style={[styles.scoreCard, { backgroundColor: rating.color }]}>
+        <Text style={styles.scoreEmoji}>{rating.emoji}</Text>
+        <Text style={styles.scoreRating}>{rating.label}</Text>
+
+        <View style={styles.scoreNumberRow}>
+          <Text style={styles.scoreValue}>{score}</Text>
+          <Text style={styles.scoreHint}>/ 100</Text>
+        </View>
+
+        {/* Fortschrittsbalken: zeigt den Score von 0 bis 100 */}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${score}%` }]} />
+        </View>
       </View>
 
       <View style={styles.row}>
@@ -79,27 +94,54 @@ const styles = StyleSheet.create({
     color: '#4B5563',
   },
   scoreCard: {
-    backgroundColor: '#10B981',
-    borderRadius: 20,
-    paddingVertical: 32,
+    borderRadius: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-  scoreLabel: {
-    color: '#D1FAE5',
-    fontSize: 14,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  scoreEmoji: {
+    fontSize: 40,
+  },
+  scoreRating: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  scoreNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
   },
   scoreValue: {
     color: '#FFFFFF',
     fontSize: 64,
     fontWeight: '800',
+    lineHeight: 68,
   },
   scoreHint: {
-    color: '#D1FAE5',
-    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
   },
   row: {
     flexDirection: 'row',
