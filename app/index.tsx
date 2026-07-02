@@ -1,7 +1,14 @@
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppTheme } from '@/constants/colors';
+import { useTheme } from '@/hooks/use-theme';
+
 export default function HomeScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>FocusGuard</Text>
@@ -34,70 +41,71 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    gap: 16,
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginTop: 8,
-  },
-  description: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#4B5563',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  cardText: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: '#4B5563',
-  },
-  primaryButton: {
-    backgroundColor: '#4F46E5',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  secondaryButton: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#4F46E5',
-  },
-  secondaryButtonText: {
-    color: '#4F46E5',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-});
+const createStyles = (c: AppTheme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      padding: 24,
+      gap: 16,
+    },
+    title: {
+      fontSize: 34,
+      fontWeight: '800',
+      color: c.textPrimary,
+      marginTop: 8,
+    },
+    description: {
+      fontSize: 16,
+      lineHeight: 24,
+      color: c.textSecondary,
+    },
+    card: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 20,
+      gap: 8,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    cardTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.textPrimary,
+    },
+    cardText: {
+      fontSize: 15,
+      lineHeight: 24,
+      color: c.textSecondary,
+    },
+    primaryButton: {
+      backgroundColor: c.primary,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    primaryButtonText: {
+      color: c.primaryText,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    secondaryButton: {
+      backgroundColor: c.card,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: c.primary,
+    },
+    secondaryButtonText: {
+      color: c.primary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    pressed: {
+      opacity: 0.8,
+    },
+  });

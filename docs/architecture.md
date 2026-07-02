@@ -36,7 +36,11 @@ utils/
   sessionStorage.ts# Lade-/Speicher-/Lösch-Funktionen (AsyncStorage)
   format.ts        # Gemeinsame Formatierungs-Helfer (formatTime)
 constants/
-  theme.ts         # Farb-/Font-Konstanten (Basis-Template)
+  colors.ts        # App-Farbpalette für Light- und Dark-Mode (AppColors)
+  theme.ts         # Farb-/Font-Konstanten (Basis-Template, ungenutzt)
+hooks/
+  use-color-scheme.ts # System-Theme (light/dark) auslesen
+  use-theme.ts        # gibt die passende AppColors-Palette zurück
 ```
 
 ## 1. Komponenten (wiederverwendbare UI-Bausteine)
@@ -48,7 +52,7 @@ Maße unten stammen aus den `StyleSheet`-Definitionen der Screens.
 
 | Baustein | Zweck | Kommt vor in | Extraktions-Empfehlung |
 |----------|-------|--------------|------------------------|
-| **Header** | Nativer Stack-Header, Indigo `#4F46E5`, weißer Text, Titel je Screen | global via `_layout.tsx` | bereits zentral gelöst |
+| **Header** | Nativer Stack-Header, Farbe aus Theme, Titel je Screen | global via `_layout.tsx` | bereits zentral gelöst |
 | **ScreenContainer** | `ScrollView` mit Padding 24, `gap` 16, grauer Hintergrund `#F5F6FA` | alle Screens | als Wrapper-Komponente extrahieren |
 | **ScreenTitle / Description** | Großer Titel (28–34px, `800`) + grauer Beschreibungstext | alle Screens | Text-Komponenten mit Varianten |
 | **Card** | Weiße Karte, `borderRadius` 16, Schatten, Padding 18–20 | Home, Session, Result, History | Basis-`Card` mit `children` |
@@ -113,6 +117,7 @@ type FocusSession = {
   durationSeconds: number; // Gesamtdauer der Session in Sekunden
   interruptions: number;   // Anzahl gezählter Bewegungs-Unterbrechungen
   longestCalmSeconds: number; // längste ununterbrochene ruhige Phase (Sekunden)
+  totalInterruptionSeconds: number; // Summe der aktiven Unterbrechungs-Dauern (Sekunden)
   score: number;           // Focus Score 0–100
 };
 ```
@@ -125,10 +130,16 @@ type FocusSession = {
   - `>= 70` → „Gute Session“, Grün `#22C55E`, 💪
   - `>= 50` → „Okay“, Gelb `#F59E0B`, 🙂
   - sonst → „Viele Unterbrechungen“, Rot `#EF4444`, 😬
+- **Unterbrechungs-Logik (session.tsx):** Accelerometer + Gyroscope erkennen
+  Bewegung. Eine Bewegungsphase zählt erst **am Ende** und nur, wenn die aktive
+  Dauer die Mindestschwelle überschreitet. Die aktiven Dauern werden zur
+  `totalInterruptionSeconds` aufsummiert.
 - **Sensor-Konstanten (session.tsx):**
-  - `MOVEMENT_THRESHOLD = 1.2` – ab diesem Delta zählt eine Bewegung
-  - `INTERRUPTION_COOLDOWN_MS = 1500` – Mindestabstand zwischen Zählungen
-  - `MOVING_DISPLAY_MS = 800` – wie lange Status „Bewegt“ sichtbar bleibt
+  - `ACCEL_THRESHOLD = 0.25` – Delta-Schwelle Accelerometer (ruckartig/Anheben)
+  - `GYRO_THRESHOLD = 0.12` – Delta-Schwelle Gyroscope (langsames Kippen/Drehen)
+  - `CALM_RESET_MS = 2000` – Ruhezeit, bis eine Unterbrechung als beendet gilt
+  - `MIN_INTERRUPTION_MS = 2000` – Mindest-Bewegungsdauer, damit sie zählt
+  - `SENSOR_INTERVAL_MS = 200` – Abtastintervall beider Sensoren
 
 **Persistenz-Format:** Liste `FocusSession[]` als JSON unter dem AsyncStorage-Key
 `focusguard.sessions`, **neueste zuerst** (`[session, ...existing]`).
@@ -183,11 +194,24 @@ werden mit `toNumber` zurückgewandelt):
 
 - **API-Interaktionen:** keine – die App ist vollständig offline/lokal.
 
+## Theming (Light-/Dark-Mode)
+
+- Zentrale Farbpalette in `constants/colors.ts` (`AppColors` mit `light` und `dark`
+  sowie dem Typ `AppTheme` mit semantischen Farbnamen).
+- `hooks/use-theme.ts` liefert über `useColorScheme()` automatisch die passende
+  Palette zum **System-Theme**; ein manueller Umschalter existiert nicht.
+- Jeder Screen baut seine Styles per `createStyles(theme)` (in `useMemo`) auf,
+  statt fester Hex-Werte. `app/_layout.tsx` färbt Header und Content ebenfalls
+  über das Theme.
+- Voraussetzung ist `"userInterfaceStyle": "automatic"` in `app.json` (gesetzt).
+
 ## Offene Punkte / Empfehlungen
 
 - **UI-Bausteine extrahieren** (Card, Buttons, StatCard, SessionListItem) in einen
   `components/`-Ordner, um Wiederverwendung und Konsistenz zu verbessern.
-- **`constants/theme.ts`** enthält aktuell nur Template-Farben und wird von den
-  Screens nicht genutzt; die tatsächlichen Farben sind in den Screens hartkodiert.
-  Empfehlung: zentrale Design-Tokens (Farben, Radius, Spacing) definieren und
-  überall verwenden.
+- **`constants/theme.ts`** (Expo-Template) wird von den App-Screens nicht genutzt –
+  die App-Farben liegen jetzt in `constants/colors.ts`. Das Template könnte man
+  entfernen, sofern die Template-Komponenten unter `components/` nicht gebraucht
+  werden.
+- **Weitere Design-Tokens** (Radius, Spacing, Schriftgrößen) könnten analog zu den
+  Farben zentralisiert werden.

@@ -1,8 +1,10 @@
 import { Accelerometer, Gyroscope } from 'expo-sensors';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppTheme } from '@/constants/colors';
+import { useTheme } from '@/hooks/use-theme';
 import { FocusSession } from '@/models/focusSession';
 import { formatTime } from '@/utils/format';
 import { addSession } from '@/utils/sessionStorage';
@@ -16,14 +18,21 @@ const GYRO_THRESHOLD = 0.12;
 // Wie lange (in ms) das Handy ruhig sein muss, bis die aktuelle
 // Unterbrechung als beendet gilt und eine neue gezählt werden kann.
 const CALM_RESET_MS = 2000;
+// Mindestdauer der aktiven Bewegung (in ms), damit sie als echte
+// Unterbrechung zählt. Kurzes Verschieben darunter wird ignoriert.
+const MIN_INTERRUPTION_MS = 2000;
 // Update-Intervall beider Sensoren (in ms).
 const SENSOR_INTERVAL_MS = 200;
 
 export default function SessionScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   const [seconds, setSeconds] = useState(0);
   const [interruptions, setInterruptions] = useState(0);
   const [isMoving, setIsMoving] = useState(false);
   const [longestCalmSeconds, setLongestCalmSeconds] = useState(0);
+  const [totalInterruptionSeconds, setTotalInterruptionSeconds] = useState(0);
 
   // Refs für Werte, die wir zwischen Updates merken, aber nicht rendern müssen.
   // Vorherige Sensor-Messwerte, um die Veränderung (delta) zu berechnen.
@@ -37,6 +46,10 @@ export default function SessionScreen() {
   const isInInterruption = useRef(false);
   // Zeitpunkt der zuletzt erkannten Aktivität (in ms).
   const lastActivityTime = useRef(0);
+  // Startzeitpunkt der aktuellen Unterbrechung (in ms).
+  const interruptionStartTime = useRef(0);
+  // Summe aller gezählten Unterbrechungs-Dauern (in ms).
+  const totalInterruptionMs = useRef(0);
   const calmStreak = useRef(0); // aktuelle ruhige Phase in Sekunden
 
   // Timer und Sensoren in Refs merken, damit wir sie beim Beenden gezielt stoppen können.
@@ -66,15 +79,16 @@ export default function SessionScreen() {
   };
 
   // Wird aufgerufen, sobald einer der Sensoren Bewegung meldet.
-  // Zählt pro Handy-Nutzung nur EINE Unterbrechung.
+  // Merkt sich nur den Start der Bewegung; gezählt wird erst am Ende
+  // (im Ruhe-Check), wenn die Dauer feststeht.
   const registerActivity = () => {
     setIsMoving(true);
     lastActivityTime.current = Date.now();
 
-    // Nur zählen, wenn nicht bereits eine Unterbrechung läuft.
+    // Beginn einer neuen Bewegungs-Phase merken.
     if (!isInInterruption.current) {
       isInInterruption.current = true;
-      setInterruptions((prev) => prev + 1);
+      interruptionStartTime.current = Date.now();
       calmStreak.current = 0; // ruhige Phase beginnt von vorne
     }
   };
@@ -86,12 +100,15 @@ export default function SessionScreen() {
     setInterruptions(0);
     setIsMoving(false);
     setLongestCalmSeconds(0);
+    setTotalInterruptionSeconds(0);
 
     // Gemerkte Werte zurücksetzen.
     hasFirstAccel.current = false;
     hasFirstGyro.current = false;
     isInInterruption.current = false;
     lastActivityTime.current = 0;
+    interruptionStartTime.current = 0;
+    totalInterruptionMs.current = 0;
     calmStreak.current = 0;
 
     // Timer: erhöht jede Sekunde die Dauer und verfolgt die längste ruhige Phase.
@@ -108,14 +125,26 @@ export default function SessionScreen() {
     }, 1000);
 
     // Ruhe-Check: prüft regelmässig, ob das Handy lange genug ruhig war.
-    // Ist das der Fall, gilt die Unterbrechung als beendet -> nächste kann zählen.
+    // Ist das der Fall, gilt die Unterbrechung als beendet. Erst hier wird
+    // anhand der aktiven Dauer entschieden, ob sie als Unterbrechung zählt.
     calmCheckRef.current = setInterval(() => {
       if (
-        lastActivityTime.current > 0 &&
+        isInInterruption.current &&
         Date.now() - lastActivityTime.current > CALM_RESET_MS
       ) {
-        setIsMoving(false);
+        // Aktive Dauer = vom Start der Bewegung bis zur letzten Aktivität
+        // (die 2 s Ruhe-Wartezeit zählen bewusst nicht mit).
+        const activeMs = lastActivityTime.current - interruptionStartTime.current;
+
+        // Nur zählen, wenn lange genug bewegt (kurzes Verschieben wird ignoriert).
+        if (activeMs >= MIN_INTERRUPTION_MS) {
+          setInterruptions((prev) => prev + 1);
+          totalInterruptionMs.current += activeMs;
+          setTotalInterruptionSeconds(Math.round(totalInterruptionMs.current / 1000));
+        }
+
         isInInterruption.current = false;
+        setIsMoving(false);
       }
     }, 500);
 
@@ -170,20 +199,34 @@ export default function SessionScreen() {
     }, [])
   );
 
-  // Einfacher Score: pro Unterbrechung 7 Punkte Abzug, mindestens 0.
-  const score = Math.max(0, 100 - interruptions * 7);
-
   // Session beenden: Timer/Sensor stoppen, Session speichern und Werte an den Result Screen übergeben.
   const endSession = async () => {
     stopSession();
+
+    // Falls beim Beenden gerade noch eine Unterbrechung läuft, diese final
+    // abrechnen (sonst ginge die letzte Bewegung verloren).
+    let finalInterruptions = interruptions;
+    let finalTotalMs = totalInterruptionMs.current;
+    if (isInInterruption.current) {
+      const activeMs = lastActivityTime.current - interruptionStartTime.current;
+      if (activeMs >= MIN_INTERRUPTION_MS) {
+        finalInterruptions += 1;
+        finalTotalMs += activeMs;
+      }
+    }
+
+    const totalInterruption = Math.round(finalTotalMs / 1000);
+    // Einfacher Score: pro Unterbrechung 7 Punkte Abzug, mindestens 0.
+    const score = Math.max(0, 100 - finalInterruptions * 7);
 
     // Session-Objekt für den Verlauf erstellen und speichern.
     const session: FocusSession = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
       durationSeconds: seconds,
-      interruptions,
+      interruptions: finalInterruptions,
       longestCalmSeconds,
+      totalInterruptionSeconds: totalInterruption,
       score,
     };
     await addSession(session);
@@ -192,8 +235,9 @@ export default function SessionScreen() {
       pathname: '/result',
       params: {
         durationSeconds: seconds,
-        interruptions,
+        interruptions: finalInterruptions,
         longestCalmSeconds,
+        totalInterruptionSeconds: totalInterruption,
         score,
       },
     });
@@ -249,6 +293,11 @@ export default function SessionScreen() {
         <Text style={styles.cardText}>{formatTime(longestCalmSeconds)} ohne Unterbrechung</Text>
       </View>
 
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Unterbrechungszeit gesamt</Text>
+        <Text style={styles.cardText}>{formatTime(totalInterruptionSeconds)} insgesamt bewegt</Text>
+      </View>
+
       <Pressable
         style={({ pressed }) => [styles.endButton, pressed && styles.pressed]}
         onPress={endSession}>
@@ -264,123 +313,124 @@ export default function SessionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    gap: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginTop: 8,
-  },
-  description: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#4B5563',
-  },
-  timerCard: {
-    backgroundColor: '#4F46E5',
-    borderRadius: 20,
-    paddingVertical: 32,
-    alignItems: 'center',
-    gap: 6,
-  },
-  timerLabel: {
-    color: '#C7D2FE',
-    fontSize: 14,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  timerValue: {
-    color: '#FFFFFF',
-    fontSize: 56,
-    fontWeight: '800',
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  flex1: {
-    flex: 1,
-  },
-  smallCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  cardLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  cardValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  statusCalm: {
-    color: '#10B981',
-  },
-  statusMoving: {
-    color: '#EF4444',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  cardText: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: '#4B5563',
-  },
-  endButton: {
-    backgroundColor: '#EF4444',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  endButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#9CA3AF',
-  },
-  cancelButtonText: {
-    color: '#6B7280',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-});
+const createStyles = (c: AppTheme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      padding: 24,
+      gap: 16,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: c.textPrimary,
+      marginTop: 8,
+    },
+    description: {
+      fontSize: 16,
+      lineHeight: 24,
+      color: c.textSecondary,
+    },
+    timerCard: {
+      backgroundColor: c.primary,
+      borderRadius: 20,
+      paddingVertical: 32,
+      alignItems: 'center',
+      gap: 6,
+    },
+    timerLabel: {
+      color: c.timerLabel,
+      fontSize: 14,
+      fontWeight: '600',
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    timerValue: {
+      color: c.primaryText,
+      fontSize: 56,
+      fontWeight: '800',
+    },
+    row: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    flex1: {
+      flex: 1,
+    },
+    smallCard: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 16,
+      gap: 6,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    card: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 20,
+      gap: 8,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    cardLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.textMuted,
+    },
+    cardValue: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: c.textPrimary,
+    },
+    statusCalm: {
+      color: c.success,
+    },
+    statusMoving: {
+      color: c.danger,
+    },
+    cardTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.textPrimary,
+    },
+    cardText: {
+      fontSize: 15,
+      lineHeight: 24,
+      color: c.textSecondary,
+    },
+    endButton: {
+      backgroundColor: c.danger,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    endButtonText: {
+      color: c.primaryText,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    cancelButton: {
+      backgroundColor: c.card,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: c.neutralBorder,
+    },
+    cancelButtonText: {
+      color: c.textMuted,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    pressed: {
+      opacity: 0.8,
+    },
+  });

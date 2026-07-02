@@ -4,5 +4,6 @@ export type FocusSession = {
     durationSeconds: number;
     interruptions: number;
     longestCalmSeconds: number;
+    totalInterruptionSeconds: number;
     score: number;
   };

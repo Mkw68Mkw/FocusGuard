@@ -1,7 +1,9 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppTheme } from '@/constants/colors';
+import { useTheme } from '@/hooks/use-theme';
 import { FocusSession } from '@/models/focusSession';
 import { formatTime } from '@/utils/format';
 import { clearSessions, loadSessions } from '@/utils/sessionStorage';
@@ -20,6 +22,8 @@ function formatDate(iso: string) {
 }
 
 export default function HistoryScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [sessions, setSessions] = useState<FocusSession[]>([]);
 
   // Bei jedem Fokussieren des Screens die gespeicherten Sessions neu laden.
@@ -70,6 +74,9 @@ export default function HistoryScreen() {
             <Text style={styles.cardDuration}>
               Dauer: {formatTime(session.durationSeconds)} · Unterbrechungen: {session.interruptions}
             </Text>
+            <Text style={styles.cardDuration}>
+              Unterbrechungszeit: {formatTime(session.totalInterruptionSeconds ?? 0)}
+            </Text>
           </View>
         ))
       )}
@@ -91,79 +98,80 @@ export default function HistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    gap: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginTop: 8,
-  },
-  description: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#4B5563',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 18,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  cardDate: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  cardScore: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#4F46E5',
-  },
-  cardDuration: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  primaryButton: {
-    backgroundColor: '#4F46E5',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  dangerButton: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  dangerButtonText: {
-    color: '#EF4444',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-});
+const createStyles = (c: AppTheme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      padding: 24,
+      gap: 16,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: c.textPrimary,
+      marginTop: 8,
+    },
+    description: {
+      fontSize: 16,
+      lineHeight: 24,
+      color: c.textSecondary,
+    },
+    card: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 18,
+      gap: 8,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    cardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    cardDate: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: c.textPrimary,
+    },
+    cardScore: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: c.primary,
+    },
+    cardDuration: {
+      fontSize: 14,
+      color: c.textMuted,
+    },
+    primaryButton: {
+      backgroundColor: c.primary,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    primaryButtonText: {
+      color: c.primaryText,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    dangerButton: {
+      backgroundColor: c.card,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: c.danger,
+    },
+    dangerButtonText: {
+      color: c.danger,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    pressed: {
+      opacity: 0.8,
+    },
+  });

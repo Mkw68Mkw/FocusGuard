@@ -1,6 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AppTheme } from '@/constants/colors';
+import { useTheme } from '@/hooks/use-theme';
 import { formatTime } from '@/utils/format';
 
 // Params kommen als String an, deshalb sicher in eine Zahl umwandeln.
@@ -18,11 +21,15 @@ function getRating(score: number) {
 }
 
 export default function ResultScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   // Werte, die der Session Screen übergeben hat, auslesen.
   const params = useLocalSearchParams();
   const durationSeconds = toNumber(params.durationSeconds);
   const interruptions = toNumber(params.interruptions);
   const longestCalmSeconds = toNumber(params.longestCalmSeconds);
+  const totalInterruptionSeconds = toNumber(params.totalInterruptionSeconds);
   const score = toNumber(params.score);
 
   // Bewertung passend zum Score bestimmen.
@@ -62,9 +69,15 @@ export default function ResultScreen() {
         </View>
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Längste ruhige Phase</Text>
-        <Text style={styles.cardValue}>{formatTime(longestCalmSeconds)}</Text>
+      <View style={styles.row}>
+        <View style={[styles.smallCard, styles.flex1]}>
+          <Text style={styles.cardLabel}>Längste ruhige Phase</Text>
+          <Text style={styles.cardValue}>{formatTime(longestCalmSeconds)}</Text>
+        </View>
+        <View style={[styles.smallCard, styles.flex1]}>
+          <Text style={styles.cardLabel}>Unterbrechungszeit</Text>
+          <Text style={styles.cardValue}>{formatTime(totalInterruptionSeconds)}</Text>
+        </View>
       </View>
 
       <Pressable
@@ -76,125 +89,115 @@ export default function ResultScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 24,
-    gap: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#1F2937',
-    marginTop: 8,
-  },
-  description: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#4B5563',
-  },
-  scoreCard: {
-    borderRadius: 24,
-    paddingVertical: 28,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  scoreEmoji: {
-    fontSize: 40,
-  },
-  scoreRating: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  scoreNumberRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  scoreValue: {
-    color: '#FFFFFF',
-    fontSize: 64,
-    fontWeight: '800',
-    lineHeight: 68,
-  },
-  scoreHint: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  progressTrack: {
-    width: '100%',
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    marginTop: 8,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  flex1: {
-    flex: 1,
-  },
-  smallCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 18,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  cardLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  cardValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  primaryButton: {
-    backgroundColor: '#4F46E5',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  pressed: {
-    opacity: 0.8,
-  },
-});
+const createStyles = (c: AppTheme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      padding: 24,
+      gap: 16,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: c.textPrimary,
+      marginTop: 8,
+    },
+    description: {
+      fontSize: 16,
+      lineHeight: 24,
+      color: c.textSecondary,
+    },
+    scoreCard: {
+      borderRadius: 24,
+      paddingVertical: 28,
+      paddingHorizontal: 24,
+      alignItems: 'center',
+      gap: 6,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
+    },
+    scoreEmoji: {
+      fontSize: 40,
+    },
+    scoreRating: {
+      color: '#FFFFFF',
+      fontSize: 20,
+      fontWeight: '800',
+    },
+    scoreNumberRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 6,
+    },
+    scoreValue: {
+      color: '#FFFFFF',
+      fontSize: 64,
+      fontWeight: '800',
+      lineHeight: 68,
+    },
+    scoreHint: {
+      color: 'rgba(255, 255, 255, 0.85)',
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 10,
+    },
+    progressTrack: {
+      width: '100%',
+      height: 10,
+      borderRadius: 999,
+      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+      marginTop: 8,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: '#FFFFFF',
+    },
+    row: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    flex1: {
+      flex: 1,
+    },
+    smallCard: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 16,
+      gap: 6,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    cardLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.textMuted,
+    },
+    cardValue: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: c.textPrimary,
+    },
+    primaryButton: {
+      backgroundColor: c.primary,
+      paddingVertical: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+      marginTop: 8,
+    },
+    primaryButtonText: {
+      color: c.primaryText,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    pressed: {
+      opacity: 0.8,
+    },
+  });
