@@ -5,7 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { AppTheme } from '@/constants/colors';
 import { useTheme } from '@/hooks/use-theme';
-import { FocusSession } from '@/models/focusSession';
+import { FocusSession, TimelinePoint } from '@/models/focusSession';
 import { formatTime } from '@/utils/format';
 import { addSession } from '@/utils/sessionStorage';
 
@@ -52,6 +52,12 @@ export default function SessionScreen() {
   const totalInterruptionMs = useRef(0);
   const calmStreak = useRef(0); // aktuelle ruhige Phase in Sekunden
 
+  // Timeline: pro Sekunde ein Bewegungs-Wert. Wir sammeln die Intensität der
+  // laufenden Sekunde in currentSecondIntensity und schreiben sie einmal pro
+  // Sekunde (im Timer) als Punkt in timelineData. So bleiben die Daten klein.
+  const timelineData = useRef<TimelinePoint[]>([]);
+  const currentSecondIntensity = useRef(0);
+
   // Timer und Sensoren in Refs merken, damit wir sie beim Beenden gezielt stoppen können.
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const calmCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -85,11 +91,12 @@ export default function SessionScreen() {
     setIsMoving(true);
     lastActivityTime.current = Date.now();
 
-    // Beginn einer neuen Bewegungs-Phase merken.
+    // Beginn einer neuen Bewegungs-Phase merken. Die ruhige Phase wird hier
+    // NICHT zurückgesetzt: ob sie unterbrochen wird, entscheidet sich erst am
+    // Ende der Bewegung (nur echte Unterbrechungen >= 2s setzen sie zurück).
     if (!isInInterruption.current) {
       isInInterruption.current = true;
       interruptionStartTime.current = Date.now();
-      calmStreak.current = 0; // ruhige Phase beginnt von vorne
     }
   };
 
@@ -110,15 +117,28 @@ export default function SessionScreen() {
     interruptionStartTime.current = 0;
     totalInterruptionMs.current = 0;
     calmStreak.current = 0;
+    timelineData.current = [];
+    currentSecondIntensity.current = 0;
 
     // Timer: erhöht jede Sekunde die Dauer und verfolgt die längste ruhige Phase.
-    // Die ruhige Phase zählt nur hoch, wenn gerade keine Unterbrechung läuft;
-    // während einer Unterbrechung bleibt sie bei 0.
+    // Die ruhige Phase zählt nur hoch, wenn gerade keine Bewegung läuft.
+    // Während einer Bewegung wird sie "eingefroren" (weder hoch noch auf 0):
+    // so läuft sie nach einer zu kurzen Bewegung einfach weiter.
     intervalRef.current = setInterval(() => {
       setSeconds((prev) => prev + 1);
-      if (isInInterruption.current) {
-        calmStreak.current = 0;
-      } else {
+
+      // Timeline: die in dieser Sekunde gesammelte Bewegungsintensität als
+      // einen Punkt speichern und den Zähler für die nächste Sekunde nullen.
+      const intensity = Math.round(currentSecondIntensity.current * 100) / 100;
+      timelineData.current.push({
+        second: timelineData.current.length + 1,
+        intensity,
+      });
+      currentSecondIntensity.current = 0;
+
+      // Nur hochzählen, wenn gerade keine Bewegung läuft. Bei Bewegung bleibt
+      // der Wert stehen (eingefroren) und läuft danach ggf. weiter.
+      if (!isInInterruption.current) {
         calmStreak.current += 1;
         setLongestCalmSeconds((prev) => Math.max(prev, calmStreak.current));
       }
@@ -141,7 +161,10 @@ export default function SessionScreen() {
           setInterruptions((prev) => prev + 1);
           totalInterruptionMs.current += activeMs;
           setTotalInterruptionSeconds(Math.round(totalInterruptionMs.current / 1000));
+          // Nur eine echte Unterbrechung beendet die ruhige Phase.
+          calmStreak.current = 0;
         }
+        // Bei einer zu kurzen Bewegung bleibt calmStreak erhalten und läuft weiter.
 
         isInInterruption.current = false;
         setIsMoving(false);
@@ -168,6 +191,9 @@ export default function SessionScreen() {
 
       lastAccel.current = data;
 
+      // Bewegung dieser Sekunde aufsummieren (auch kleine Bewegungen zählen für die Timeline).
+      currentSecondIntensity.current += accelDelta;
+
       if (accelDelta > ACCEL_THRESHOLD) registerActivity();
     });
 
@@ -185,6 +211,9 @@ export default function SessionScreen() {
         Math.abs(data.z - lastGyro.current.z);
 
       lastGyro.current = data;
+
+      // Drehung/Kippen dieser Sekunde ebenfalls zur Intensität addieren.
+      currentSecondIntensity.current += gyroDelta;
 
       if (gyroDelta > GYRO_THRESHOLD) registerActivity();
     });
@@ -219,6 +248,9 @@ export default function SessionScreen() {
     // Einfacher Score: pro Unterbrechung 7 Punkte Abzug, mindestens 0.
     const score = Math.max(0, 100 - finalInterruptions * 7);
 
+    // Aufgezeichnete Bewegungs-Timeline dieser Session.
+    const timeline = timelineData.current;
+
     // Session-Objekt für den Verlauf erstellen und speichern.
     const session: FocusSession = {
       id: Date.now().toString(),
@@ -228,6 +260,7 @@ export default function SessionScreen() {
       longestCalmSeconds,
       totalInterruptionSeconds: totalInterruption,
       score,
+      timeline,
     };
     await addSession(session);
 
@@ -239,6 +272,8 @@ export default function SessionScreen() {
         longestCalmSeconds,
         totalInterruptionSeconds: totalInterruption,
         score,
+        // Router-Params können nur Strings sein -> Timeline als JSON-String übergeben.
+        timeline: JSON.stringify(timeline),
       },
     });
   };

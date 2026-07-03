@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme } from '@/constants/colors';
 import { useTheme } from '@/hooks/use-theme';
+import { TimelinePoint } from '@/models/focusSession';
 import { formatTime } from '@/utils/format';
 
 // Params kommen als String an, deshalb sicher in eine Zahl umwandeln.
@@ -11,6 +12,21 @@ function toNumber(value: string | string[] | undefined) {
   const num = Number(Array.isArray(value) ? value[0] : value);
   return Number.isFinite(num) ? num : 0;
 }
+
+// Die Timeline kommt als JSON-String an -> sicher zurück in ein Array wandeln.
+function parseTimeline(value: string | string[] | undefined): TimelinePoint[] {
+  try {
+    const raw = Array.isArray(value) ? value[0] : value;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Maximale Balkenhöhe der Timeline-Visualisierung (in Pixeln).
+const MAX_BAR_HEIGHT = 120;
 
 // Wandelt den Score in eine Bewertung mit Text, Farbe und Emoji um.
 function getRating(score: number) {
@@ -31,9 +47,21 @@ export default function ResultScreen() {
   const longestCalmSeconds = toNumber(params.longestCalmSeconds);
   const totalInterruptionSeconds = toNumber(params.totalInterruptionSeconds);
   const score = toNumber(params.score);
+  const timeline = parseTimeline(params.timeline);
 
   // Bewertung passend zum Score bestimmen.
   const rating = getRating(score);
+
+  // Kleine Auswertung der Timeline berechnen.
+  const maxIntensity = timeline.reduce((max, p) => Math.max(max, p.intensity), 0);
+  const peakPoint = timeline.reduce(
+    (best, p) => (p.intensity > best.intensity ? p : best),
+    { second: 0, intensity: 0 } as TimelinePoint
+  );
+  const averageIntensity =
+    timeline.length > 0
+      ? timeline.reduce((sum, p) => sum + p.intensity, 0) / timeline.length
+      : 0;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -78,6 +106,55 @@ export default function ResultScreen() {
           <Text style={styles.cardLabel}>Unterbrechungszeit</Text>
           <Text style={styles.cardValue}>{formatTime(totalInterruptionSeconds)}</Text>
         </View>
+      </View>
+
+      {/* Session Analyse: Bewegungs-Timeline als kleine Balken-Visualisierung */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Session Analyse</Text>
+        <Text style={styles.cardText}>
+          Hier siehst du, wann dein Handy während der Session bewegt wurde.
+        </Text>
+
+        {timeline.length === 0 ? (
+          <Text style={styles.emptyText}>Keine Bewegungsdaten aufgezeichnet.</Text>
+        ) : (
+          <>
+            {/* Horizontale Balken: je höher, desto stärker die Bewegung */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chart}>
+              {timeline.map((point) => {
+                // Balkenhöhe relativ zum stärksten Peak berechnen.
+                const ratio = maxIntensity > 0 ? point.intensity / maxIntensity : 0;
+                const barHeight = Math.max(4, ratio * MAX_BAR_HEIGHT);
+                // Peaks farblich hervorheben.
+                const isPeak = point.intensity === maxIntensity && maxIntensity > 0;
+                return (
+                  <View key={point.second} style={styles.barColumn}>
+                    <View
+                      style={[
+                        styles.bar,
+                        { height: barHeight },
+                        isPeak && styles.barPeak,
+                      ]}
+                    />
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            {/* Kleine Auswertung */}
+            <View style={styles.analysisStats}>
+              <Text style={styles.analysisLine}>
+                Stärkster Peak: {peakPoint.intensity.toFixed(2)} bei {formatTime(peakPoint.second)}
+              </Text>
+              <Text style={styles.analysisLine}>
+                Durchschnittliche Intensität: {averageIntensity.toFixed(2)}
+              </Text>
+            </View>
+          </>
+        )}
       </View>
 
       <Pressable
@@ -183,6 +260,57 @@ const createStyles = (c: AppTheme) =>
     cardValue: {
       fontSize: 22,
       fontWeight: '700',
+      color: c.textPrimary,
+    },
+    card: {
+      backgroundColor: c.card,
+      borderRadius: 16,
+      padding: 20,
+      gap: 12,
+      shadowColor: c.shadow,
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+    },
+    cardTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: c.textPrimary,
+    },
+    cardText: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: c.textSecondary,
+    },
+    emptyText: {
+      fontSize: 14,
+      color: c.textMuted,
+      fontStyle: 'italic',
+    },
+    chart: {
+      alignItems: 'flex-end',
+      gap: 3,
+      height: MAX_BAR_HEIGHT,
+      paddingVertical: 4,
+    },
+    barColumn: {
+      justifyContent: 'flex-end',
+    },
+    bar: {
+      width: 6,
+      borderRadius: 3,
+      backgroundColor: c.primary,
+    },
+    barPeak: {
+      backgroundColor: c.danger,
+    },
+    analysisStats: {
+      gap: 4,
+    },
+    analysisLine: {
+      fontSize: 15,
+      fontWeight: '600',
       color: c.textPrimary,
     },
     primaryButton: {
